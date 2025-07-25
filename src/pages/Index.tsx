@@ -5,8 +5,8 @@ const Index = () => {
   // Note: In production, you should use environment variables for Supabase config
   // For now, these are optional - the dashboard will work without them
   const supabaseConfig = {
-    url: process.env.REACT_APP_SUPABASE_URL || '',
-    anonKey: process.env.REACT_APP_SUPABASE_ANON_KEY || '',
+    url: import.meta.env.VITE_SUPABASE_URL || '',
+    anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
   };
 
   return (
