@@ -35,6 +35,7 @@ import { MemoryVisualization } from './MemoryVisualization';
 import { MultimediaGenerator } from './MultimediaGenerator';
 import { TokenAnalytics } from './TokenAnalytics';
 import { ConversationInterface } from './ConversationInterface';
+import { EnhancedConversationInterface } from './EnhancedConversationInterface';
 
 interface DashboardProps {
   geminiConfig?: GeminiConfig;
@@ -48,7 +49,9 @@ export const GeminiDashboard: React.FC<DashboardProps> = ({
   const [framework, setFramework] = useState<EnhancedGeminiFramework | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState('conversation');
-  const [apiKey, setApiKey] = useState(initialGeminiConfig?.apiKey || '');
+  const [geminiApiKey, setGeminiApiKey] = useState(initialGeminiConfig?.apiKey || '');
+  const [supabaseUrl, setSupabaseUrl] = useState(supabaseConfig?.url || '');
+  const [supabaseKey, setSupabaseKey] = useState(supabaseConfig?.anonKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -62,8 +65,8 @@ export const GeminiDashboard: React.FC<DashboardProps> = ({
     costEstimate: 0
   });
 
-  const handleConnectToGemini = async () => {
-    if (!apiKey.trim()) {
+  const connectGemini = async () => {
+    if (!geminiApiKey.trim()) {
       setErrorMessage('Please enter your Gemini API key');
       return;
     }
@@ -73,9 +76,15 @@ export const GeminiDashboard: React.FC<DashboardProps> = ({
     setErrorMessage('');
 
     try {
-      // Create framework with API key
+      // Create Supabase config if provided
+      const supabaseConfig = (supabaseUrl && supabaseKey) ? {
+        url: supabaseUrl,
+        anonKey: supabaseKey
+      } : undefined;
+
+      // Create framework with API key and optional Supabase
       const fw = new EnhancedGeminiFramework(
-        { apiKey: apiKey.trim() },
+        { apiKey: geminiApiKey.trim() },
         supabaseConfig
       );
 
@@ -134,60 +143,56 @@ Tailor the complexity of your explanation to match the question's sophistication
     });
   };
 
+  const connectSupabase = async () => {
+    // This would trigger a reconnection with Supabase included
+    await connectGemini();
+  };
+
   // Auto-connect if API key is provided
   useEffect(() => {
     if (initialGeminiConfig?.apiKey && !framework) {
-      handleConnectToGemini();
+      connectGemini();
     }
   }, [initialGeminiConfig?.apiKey]);
 
   if (!framework || !isInitialized) {
     return (
-      <div className="min-h-screen hero-gradient flex items-center justify-center">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="w-16 h-16 mx-auto mb-4 bg-gradient-neural rounded-full flex items-center justify-center">
-              <Brain className="w-8 h-8 text-white" />
-            </div>
-            <CardTitle className="gradient-text text-2xl">Gemini LLM Framework</CardTitle>
-            <CardDescription>
-              Connect to your Gemini API to access real-time AI capabilities
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="api-key">Gemini API Key</Label>
-              <div className="relative">
-                <Input
-                  id="api-key"
-                  type={showApiKey ? "text" : "password"}
-                  placeholder="Enter your Gemini API key (AIza...)"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="pr-10"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                >
-                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </Button>
+      <div className="min-h-screen hero-gradient flex items-center justify-center p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full max-w-4xl">
+          {/* Gemini API Configuration */}
+          <Card className="backdrop-blur-md bg-card/80 border-border/50">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                <Brain className="w-8 h-8 text-white" />
               </div>
-              <p className="text-xs text-muted-foreground">
-                Get your API key from the{' '}
-                <a 
-                  href="https://makersuite.google.com/app/apikey" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline"
-                >
-                  Google AI Studio
-                </a>
-              </p>
-            </div>
+              <CardTitle className="text-xl">Connect to Gemini</CardTitle>
+              <CardDescription>
+                Enter your API key to unlock AI capabilities
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="api-key">Gemini API Key</Label>
+                <div className="relative">
+                  <Input
+                    id="api-key"
+                    type={showApiKey ? "text" : "password"}
+                    placeholder="Enter your Gemini API key (AIza...)"
+                    value={geminiApiKey}
+                    onChange={(e) => setGeminiApiKey(e.target.value)}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                  >
+                    {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                </div>
+              </div>
 
             {errorMessage && (
               <Alert variant="destructive">
@@ -203,45 +208,95 @@ Tailor the complexity of your explanation to match the question's sophistication
               </Alert>
             )}
 
-            <div className="space-y-2">
-              <Label>Supabase Configuration (Optional)</Label>
-              <Input 
-                placeholder="https://your-project.supabase.co" 
-                defaultValue={supabaseConfig?.url || ''}
-                disabled
-              />
-              <Input 
-                placeholder="Your Supabase anon key" 
-                type="password"
-                defaultValue={supabaseConfig?.anonKey || ''}
-                disabled
-              />
-              <p className="text-xs text-muted-foreground">
-                Supabase integration enables conversation history and memory storage
-              </p>
-            </div>
+              <Button 
+                onClick={connectGemini} 
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+                disabled={!geminiApiKey}
+              >
+                <Brain className="w-4 h-4 mr-2" />
+                Connect to Gemini
+              </Button>
+              <div className="text-xs text-muted-foreground text-center mt-2">
+                Get your API key from{' '}
+                <a 
+                  href="https://makersuite.google.com/app/apikey" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Google AI Studio
+                </a>
+              </div>
+            </CardContent>
+          </Card>
 
-            <Button 
-              variant="hero" 
-              className="w-full" 
-              size="lg"
-              onClick={handleConnectToGemini}
-              disabled={isConnecting || !apiKey.trim()}
-            >
-              {isConnecting ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                  Connecting...
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4 mr-2" />
-                  Connect to Gemini
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+          {/* Supabase Configuration */}
+          <Card className="backdrop-blur-md bg-card/80 border-border/50">
+            <CardHeader className="text-center">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center">
+                <Database className="w-8 h-8 text-white" />
+              </div>
+              <CardTitle className="text-xl">Connect to Supabase</CardTitle>
+              <CardDescription>
+                Enable conversation history and analytics (optional)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Supabase Project URL
+                </label>
+                <Input
+                  type="url"
+                  placeholder="https://your-project.supabase.co"
+                  value={supabaseUrl}
+                  onChange={(e) => setSupabaseUrl(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Supabase Anon Key
+                </label>
+                <Input
+                  type="password"
+                  placeholder="Your Supabase anon key"
+                  value={supabaseKey}
+                  onChange={(e) => setSupabaseKey(e.target.value)}
+                />
+              </div>
+              <Button 
+                onClick={connectSupabase} 
+                className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
+                disabled={!supabaseUrl || !supabaseKey || !geminiApiKey}
+              >
+                <Database className="w-4 h-4 mr-2" />
+                Connect & Setup Database
+              </Button>
+              <div className="text-xs text-muted-foreground text-center mt-2">
+                This will create tables and add sample data automatically
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Error/Success Messages */}
+        {errorMessage && (
+          <div className="fixed bottom-6 right-6 max-w-md">
+            <Alert variant="destructive" className="backdrop-blur-md bg-card/90">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{errorMessage}</AlertDescription>
+            </Alert>
+          </div>
+        )}
+
+        {connectionStatus === 'connected' && (
+          <div className="fixed bottom-6 right-6 max-w-md">
+            <Alert className="backdrop-blur-md bg-card/90">
+              <CheckCircle className="h-4 w-4" />
+              <AlertDescription>Successfully connected to Gemini API!</AlertDescription>
+            </Alert>
+          </div>
+        )}
       </div>
     );
   }
@@ -325,9 +380,8 @@ Tailor the complexity of your explanation to match the question's sophistication
           </TabsList>
 
           <TabsContent value="conversation" className="space-y-6">
-            <ConversationInterface 
-              framework={framework} 
-              onStatsUpdate={() => updateStats(framework)}
+            <EnhancedConversationInterface 
+              framework={framework}
             />
           </TabsContent>
 
@@ -367,7 +421,7 @@ Tailor the complexity of your explanation to match the question's sophistication
                       <div className="flex items-center space-x-2">
                         <Input
                           type="password"
-                          value={apiKey}
+                          value={geminiApiKey}
                           readOnly
                           className="flex-1"
                         />
