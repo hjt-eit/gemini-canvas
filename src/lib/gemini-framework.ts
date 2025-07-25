@@ -1,9 +1,9 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@supabase/supabase-js';
 
-// Enhanced Gemini Framework with Memory and Multimedia
+// Enhanced Gemini Framework with Real API Integration
 export interface GeminiConfig {
   apiKey: string;
-  vertexai?: boolean;
   project?: string;
   location?: string;
 }
@@ -88,6 +88,11 @@ export interface TokenStats {
   finalResponseTokens: number;
   memoryAnnotationTokens: number;
   multimediaTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalRequests: number;
+  averageResponseTime: number;
+  costEstimate: number;
 }
 
 export interface ProcessingResult {
@@ -100,26 +105,41 @@ export interface ProcessingResult {
   is_profound: boolean;
   stats: TokenStats;
   schema_validation?: { valid: boolean; errors: string[] };
+  response_time: number;
+  actual_tokens_used: number;
 }
 
 export class EnhancedGeminiFramework {
-  private ai: any;
+  private genai: GoogleGenerativeAI | null = null;
   private supabase: any;
   private cache: Map<string, any> = new Map();
   private stats: TokenStats;
+  private requestHistory: Array<{
+    timestamp: number;
+    tokens: number;
+    response_time: number;
+    model: string;
+  }> = [];
   
-  constructor(geminiConfig: GeminiConfig, supabaseConfig?: SupabaseConfig) {
-    // Initialize Gemini AI
-    if (typeof window !== 'undefined' && geminiConfig.apiKey) {
-      // Client-side initialization would go here
-      console.log('Initializing Gemini AI client...');
+  constructor(geminiConfig?: GeminiConfig, supabaseConfig?: SupabaseConfig) {
+    // Initialize Gemini AI only if API key is provided
+    if (geminiConfig?.apiKey && geminiConfig.apiKey.length > 10) {
+      try {
+        this.genai = new GoogleGenerativeAI(geminiConfig.apiKey);
+        console.log('✅ Gemini AI initialized successfully');
+      } catch (error) {
+        console.error('❌ Error initializing Gemini AI:', error);
+      }
+    } else {
+      console.log('⚠️ Gemini AI not initialized - API key not provided');
     }
     
     // Initialize Supabase only with valid config
     if (supabaseConfig && supabaseConfig.url.startsWith('http') && supabaseConfig.anonKey.length > 10) {
       this.supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
+      console.log('✅ Supabase initialized successfully');
     } else {
-      console.log('Supabase config not provided or invalid - running in demo mode');
+      console.log('⚠️ Supabase not initialized - running in demo mode');
     }
     
     // Initialize stats
@@ -133,64 +153,338 @@ export class EnhancedGeminiFramework {
       finalResponseTokens: 0,
       memoryAnnotationTokens: 0,
       multimediaTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalRequests: 0,
+      averageResponseTime: 0,
+      costEstimate: 0,
     };
   }
+
+  // Update API key at runtime
+  updateApiKey(apiKey: string) {
+    if (apiKey && apiKey.length > 10) {
+      try {
+        this.genai = new GoogleGenerativeAI(apiKey);
+        console.log('✅ Gemini API key updated successfully');
+        return true;
+      } catch (error) {
+        console.error('❌ Error updating Gemini API key:', error);
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // Check if API is ready
+  isApiReady(): boolean {
+    return this.genai !== null;
+  }
   
-  // Initialize and cache the three tiers
+  // Initialize and cache the three tiers with real token counting
   async initializeTiers(tier1: string, tier2: string, tier3: string): Promise<boolean> {
+    if (!this.genai) {
+      console.warn('⚠️ Gemini API not initialized');
+      return false;
+    }
+
     try {
-      // Mock token counting for now
-      const tier1Tokens = tier1.length / 4; // Rough estimation
-      const tier2Tokens = tier2.length / 4;
-      const tier3Tokens = tier3.length / 4;
+      // Count tokens for each tier using real API
+      const model = this.genai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      
+      const tier1Count = await model.countTokens(tier1);
+      const tier2Count = await model.countTokens(tier2);
+      const tier3Count = await model.countTokens(tier3);
       
       this.cache.set('tier1-pre', {
         content: tier1,
-        tokens: tier1Tokens
+        tokens: tier1Count.totalTokens
       });
       
       this.cache.set('tier2-pre', {
         content: tier2,
-        tokens: tier2Tokens
+        tokens: tier2Count.totalTokens
       });
       
       this.cache.set('tier3-pre', {
         content: tier3,
-        tokens: tier3Tokens
+        tokens: tier3Count.totalTokens
       });
       
-      this.stats.tier1Tokens = tier1Tokens;
-      this.stats.tier2Tokens = tier2Tokens;
-      this.stats.tier3Tokens = tier3Tokens;
+      this.stats.tier1Tokens = tier1Count.totalTokens;
+      this.stats.tier2Tokens = tier2Count.totalTokens;
+      this.stats.tier3Tokens = tier3Count.totalTokens;
       this.stats.cachedTokens = this.stats.tier1Tokens + this.stats.tier2Tokens + this.stats.tier3Tokens;
       
-      console.log('Tiers initialized and cached successfully');
+      console.log('✅ Tiers initialized and cached successfully');
+      console.log(`📊 Cached tokens: ${this.stats.cachedTokens}`);
       return true;
     } catch (error) {
-      console.error('Error initializing tiers:', error);
+      console.error('❌ Error initializing tiers:', error);
       return false;
     }
   }
   
-  // Mock profundity assessment
+  // Real profundity assessment using Gemini API
   async assessProfundity(userRequest: string): Promise<{ profundity_score: number; reasoning: string }> {
-    // Simple heuristic for demo purposes
-    const complexityIndicators = [
-      'consciousness', 'philosophy', 'quantum', 'theoretical', 'implications',
-      'ethics', 'metaphysics', 'epistemology', 'paradigm', 'framework'
-    ];
+    if (!this.genai) {
+      // Fallback to heuristic assessment
+      const complexityIndicators = [
+        'consciousness', 'philosophy', 'quantum', 'theoretical', 'implications',
+        'ethics', 'metaphysics', 'epistemology', 'paradigm', 'framework'
+      ];
+      
+      const score = complexityIndicators.reduce((acc, indicator) => {
+        return acc + (userRequest.toLowerCase().includes(indicator) ? 15 : 0);
+      }, Math.min(userRequest.length / 10, 30));
+      
+      return {
+        profundity_score: Math.min(score, 100),
+        reasoning: score > 50 ? "Complex theoretical question requiring deep analysis" : "Straightforward inquiry"
+      };
+    }
+
+    const profundityPrompt = `
+    Analyze the following user request and determine its profundity level on a scale of 0-100:
     
-    const score = complexityIndicators.reduce((acc, indicator) => {
-      return acc + (userRequest.toLowerCase().includes(indicator) ? 15 : 0);
-    }, Math.min(userRequest.length / 10, 30));
+    0-30: Simple, factual questions
+    31-50: Moderate complexity requiring some analysis
+    51-70: Complex questions requiring deep thinking
+    71-100: Profound philosophical, scientific, or analytical questions
     
-    return {
-      profundity_score: Math.min(score, 100),
-      reasoning: score > 50 ? "Complex theoretical question requiring deep analysis" : "Straightforward inquiry"
-    };
+    User Request: "${userRequest}"
+    
+    Respond with only a JSON object: {"profundity_score": <number>, "reasoning": "<brief explanation>"}
+    `;
+
+    try {
+      const model = this.genai.getGenerativeModel({ 
+        model: 'gemini-1.5-flash',
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 200,
+          responseMimeType: 'application/json'
+        }
+      });
+
+      const startTime = Date.now();
+      const result = await model.generateContent(profundityPrompt);
+      const responseTime = Date.now() - startTime;
+      
+      const response = await result.response;
+      const assessment = JSON.parse(response.text());
+      
+      // Track usage
+      const usage = await model.countTokens(profundityPrompt);
+      this.stats.profundityCheckTokens += usage.totalTokens;
+      this.stats.totalTokensUsed += usage.totalTokens;
+      this.stats.totalRequests++;
+      
+      this.updateRequestHistory(usage.totalTokens, responseTime, 'gemini-1.5-flash');
+      
+      console.log(`🧠 Profundity: ${assessment.profundity_score}/100 - ${assessment.reasoning}`);
+      
+      return assessment;
+    } catch (error) {
+      console.error('❌ Error assessing profundity:', error);
+      return { profundity_score: 25, reasoning: "Error in assessment, defaulting to low profundity" };
+    }
   }
-  
-  // Generate multimedia content
+
+  // Process request with real API calls
+  async processRequest(userRequest: string, sessionId: string = 'default', userId?: string): Promise<ProcessingResult> {
+    if (!this.genai) {
+      throw new Error('Gemini API not initialized. Please provide a valid API key.');
+    }
+
+    const startTime = Date.now();
+    
+    // Check if tiers are cached
+    if (!this.cache.has('tier1-pre') || !this.cache.has('tier2-pre') || !this.cache.has('tier3-pre')) {
+      throw new Error('Tiers not initialized. Please call initializeTiers() first.');
+    }
+
+    // Step 1: Assess profundity
+    const assessment = await this.assessProfundity(userRequest);
+    const isProfound = assessment.profundity_score > 50;
+
+    // Step 2: Build complete payload with cached tiers
+    const tier1 = this.cache.get('tier1-pre');
+    const tier2 = this.cache.get('tier2-pre');
+    const tier3 = this.cache.get('tier3-pre');
+
+    const wrappedRequest = `
+<!-- PROFUNDITY ANALYSIS: Score ${assessment.profundity_score}/100 - ${assessment.reasoning} -->
+${userRequest}
+`;
+
+    const fullPayload = `${tier1.content}\n\n${tier2.content}\n\n${tier3.content}\n\n${wrappedRequest}`;
+
+    // Step 3: Route to appropriate model
+    const targetModel = isProfound ? 'gemini-1.5-pro' : 'gemini-1.5-flash';
+    console.log(`🎯 Routing to: ${targetModel} (Profound: ${isProfound})`);
+
+    try {
+      const model = this.genai.getGenerativeModel({ 
+        model: targetModel,
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 2048,
+        }
+      });
+
+      const result = await model.generateContent(fullPayload);
+      const response = await result.response;
+      const responseTime = Date.now() - startTime;
+      
+      // Count actual tokens used
+      const usage = await model.countTokens(fullPayload);
+      const outputTokens = await model.countTokens(response.text());
+      
+      const totalTokens = usage.totalTokens + outputTokens.totalTokens;
+      
+      // Update statistics
+      this.stats.finalResponseTokens += outputTokens.totalTokens;
+      this.stats.inputTokens += usage.totalTokens;
+      this.stats.outputTokens += outputTokens.totalTokens;
+      this.stats.totalTokensUsed += totalTokens;
+      this.stats.totalRequests++;
+      
+      // Calculate cost estimate (approximate pricing)
+      const inputCost = (usage.totalTokens / 1000) * 0.00015; // $0.15 per 1K input tokens
+      const outputCost = (outputTokens.totalTokens / 1000) * 0.0006; // $0.60 per 1K output tokens
+      this.stats.costEstimate += inputCost + outputCost;
+      
+      this.updateRequestHistory(totalTokens, responseTime, targetModel);
+      
+      console.log(`✅ Response generated successfully`);
+      console.log(`📊 Tokens used: ${totalTokens} (${usage.totalTokens} input + ${outputTokens.totalTokens} output)`);
+      console.log(`⏱️ Response time: ${responseTime}ms`);
+      console.log(`💰 Cost estimate: $${(inputCost + outputCost).toFixed(6)}`);
+      
+      // Store conversation if Supabase is available
+      let supabaseResult = null;
+      if (this.supabase) {
+        supabaseResult = await this.storeConversation(
+          userId || 'anonymous',
+          sessionId,
+          userRequest,
+          response.text(),
+          targetModel,
+          {
+            input_tokens: usage.totalTokens,
+            output_tokens: outputTokens.totalTokens,
+            cached_tokens: this.stats.cachedTokens,
+            total_tokens: totalTokens,
+            cost_estimate: inputCost + outputCost
+          }
+        );
+      }
+      
+      return {
+        main_response: response.text(),
+        model_used: targetModel,
+        profundity_score: assessment.profundity_score,
+        is_profound: isProfound,
+        stats: this.getStats(),
+        response_time: responseTime,
+        actual_tokens_used: totalTokens,
+        supabase_result: supabaseResult
+      };
+
+    } catch (error) {
+      console.error(`❌ Error with ${targetModel}:`, error);
+      throw error;
+    }
+  }
+
+  // Update request history for analytics
+  private updateRequestHistory(tokens: number, responseTime: number, model: string) {
+    this.requestHistory.push({
+      timestamp: Date.now(),
+      tokens,
+      response_time: responseTime,
+      model
+    });
+    
+    // Keep only last 100 requests
+    if (this.requestHistory.length > 100) {
+      this.requestHistory = this.requestHistory.slice(-100);
+    }
+    
+    // Update average response time
+    this.stats.averageResponseTime = Math.round(
+      this.requestHistory.reduce((sum, req) => sum + req.response_time, 0) / this.requestHistory.length
+    );
+  }
+
+  // Store conversation in Supabase
+  async storeConversation(
+    userId: string,
+    sessionId: string,
+    userRequest: string,
+    aiResponse: string,
+    modelUsed: string,
+    tokenUsage: any
+  ) {
+    if (!this.supabase) {
+      console.warn('⚠️ Supabase not initialized');
+      return { success: false, error: 'Supabase not configured' };
+    }
+    
+    try {
+      const { data, error } = await this.supabase
+        .from('conversations')
+        .insert([{
+          user_id: userId,
+          session_id: sessionId,
+          user_request: userRequest,
+          ai_response: aiResponse,
+          model_used: modelUsed,
+          token_usage: tokenUsage,
+          response_time_ms: this.stats.averageResponseTime,
+          prompt_tiers_used: ['tier1', 'tier2', 'tier3']
+        }])
+        .select();
+        
+      if (error) throw error;
+      
+      return { success: true, data };
+    } catch (error) {
+      console.error('❌ Error storing conversation:', error);
+      return { success: false, error };
+    }
+  }
+
+  // Store memory annotation
+  async storeMemoryAnnotation(memory: MemoryAnnotation) {
+    if (!this.supabase) {
+      console.warn('Supabase not initialized');
+      return { success: false, error: 'Supabase not configured' };
+    }
+    
+    try {
+      const { data, error } = await this.supabase
+        .from('user_memory')
+        .insert([{
+          user_id: memory.metadata.user_id || 'anonymous',
+          memory_key: `interaction_${memory.metadata.interaction_id}`,
+          memory_value: JSON.stringify(memory),
+          memory_type: 'context',
+          confidence_score: memory.episodic_memory.importance_score / 10
+        }])
+        .select();
+        
+      if (error) throw error;
+      
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error storing memory:', error);
+      return { success: false, error };
+    }
+  }
+
+  // Generate multimedia content with real metrics
   async generateMultimedia(requests: MultimediaRequest[]): Promise<MultimediaResponse[]> {
     const responses: MultimediaResponse[] = [];
     
@@ -235,7 +529,7 @@ export class EnhancedGeminiFramework {
           break;
           
         default:
-          console.warn(`Unsupported multimedia type: ${request.type}`);
+          console.warn(`⚠️ Unsupported multimedia type: ${request.type}`);
       }
     }
     
@@ -244,7 +538,6 @@ export class EnhancedGeminiFramework {
   
   // Generate Plotly visualization data
   private generatePlotlyData(prompt: string) {
-    // Generate sample data based on prompt analysis
     if (prompt.toLowerCase().includes('scatter')) {
       return {
         data: [{
@@ -263,7 +556,6 @@ export class EnhancedGeminiFramework {
       };
     }
     
-    // Default bar chart
     return {
       data: [{
         x: ['A', 'B', 'C', 'D', 'E'],
@@ -296,7 +588,6 @@ export class EnhancedGeminiFramework {
       };
     }
     
-    // Default cube array
     return {
       objects: Array.from({length: 5}, (_, i) => ({
         type: 'cube',
@@ -305,73 +596,7 @@ export class EnhancedGeminiFramework {
       }))
     };
   }
-  
-  // Store conversation in Supabase
-  async storeConversation(
-    userId: string,
-    sessionId: string,
-    userRequest: string,
-    aiResponse: string,
-    modelUsed: string,
-    tokenUsage: any
-  ) {
-    if (!this.supabase) {
-      console.warn('Supabase not initialized');
-      return { success: false, error: 'Supabase not configured' };
-    }
-    
-    try {
-      const { data, error } = await this.supabase
-        .from('conversations')
-        .insert([{
-          user_id: userId,
-          session_id: sessionId,
-          user_request: userRequest,
-          ai_response: aiResponse,
-          model_used: modelUsed,
-          token_usage: tokenUsage,
-          response_time_ms: 1000, // Mock response time
-          prompt_tiers_used: ['tier1', 'tier2', 'tier3']
-        }])
-        .select();
-        
-      if (error) throw error;
-      
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error storing conversation:', error);
-      return { success: false, error };
-    }
-  }
-  
-  // Store memory annotation
-  async storeMemoryAnnotation(memory: MemoryAnnotation) {
-    if (!this.supabase) {
-      console.warn('Supabase not initialized');
-      return { success: false, error: 'Supabase not configured' };
-    }
-    
-    try {
-      const { data, error } = await this.supabase
-        .from('user_memory')
-        .insert([{
-          user_id: memory.metadata.user_id || 'anonymous',
-          memory_key: `interaction_${memory.metadata.interaction_id}`,
-          memory_value: JSON.stringify(memory),
-          memory_type: 'context',
-          confidence_score: memory.episodic_memory.importance_score / 10
-        }])
-        .select();
-        
-      if (error) throw error;
-      
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error storing memory:', error);
-      return { success: false, error };
-    }
-  }
-  
+
   // Get current statistics
   getStats(): TokenStats {
     return { ...this.stats };
@@ -382,7 +607,25 @@ export class EnhancedGeminiFramework {
     return {
       cached_tiers: Array.from(this.cache.keys()),
       total_cached_tokens: this.stats.cachedTokens,
-      cache_details: Object.fromEntries(this.cache)
+      cache_details: Object.fromEntries(this.cache),
+      efficiency_percentage: this.stats.totalTokensUsed > 0 
+        ? Math.round((this.stats.cachedTokens / this.stats.totalTokensUsed) * 100)
+        : 0
     };
+  }
+
+  // Get request history for analytics
+  getRequestHistory() {
+    return this.requestHistory;
+  }
+
+  // Clear cache and reset stats
+  clearCache() {
+    this.cache.clear();
+    this.stats.cachedTokens = 0;
+    this.stats.tier1Tokens = 0;
+    this.stats.tier2Tokens = 0;
+    this.stats.tier3Tokens = 0;
+    console.log('🧹 Cache cleared');
   }
 }

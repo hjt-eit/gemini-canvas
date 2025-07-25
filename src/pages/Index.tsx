@@ -1,20 +1,17 @@
+
 import { GeminiDashboard } from '@/components/GeminiDashboard';
 
 const Index = () => {
-  // In a real implementation, these would come from environment variables or user input
-  const geminiConfig = {
-    apiKey: 'your-gemini-api-key', // Replace with actual API key
-  };
-
+  // Note: In production, you should use environment variables for Supabase config
+  // For now, these are optional - the dashboard will work without them
   const supabaseConfig = {
-    url: 'your-supabase-url', // Replace with actual Supabase URL
-    anonKey: 'your-supabase-anon-key', // Replace with actual Supabase anon key
+    url: process.env.REACT_APP_SUPABASE_URL || '',
+    anonKey: process.env.REACT_APP_SUPABASE_ANON_KEY || '',
   };
 
   return (
     <GeminiDashboard 
-      geminiConfig={geminiConfig}
-      supabaseConfig={supabaseConfig}
+      supabaseConfig={supabaseConfig.url && supabaseConfig.anonKey ? supabaseConfig : undefined}
     />
   );
 };

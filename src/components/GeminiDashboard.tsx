@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Brain, 
   Cpu, 
@@ -21,7 +23,11 @@ import {
   HardDrive,
   Timer,
   Gauge,
-  Activity
+  Activity,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  CheckCircle
 } from 'lucide-react';
 import { EnhancedGeminiFramework, type GeminiConfig, type SupabaseConfig } from '@/lib/gemini-framework';
 import { ModelConfiguration } from './ModelConfiguration';
@@ -36,26 +42,44 @@ interface DashboardProps {
 }
 
 export const GeminiDashboard: React.FC<DashboardProps> = ({
-  geminiConfig,
+  geminiConfig: initialGeminiConfig,
   supabaseConfig
 }) => {
   const [framework, setFramework] = useState<EnhancedGeminiFramework | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState('conversation');
+  const [apiKey, setApiKey] = useState(initialGeminiConfig?.apiKey || '');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
+  const [errorMessage, setErrorMessage] = useState('');
   const [stats, setStats] = useState({
     totalTokensUsed: 0,
     cachedTokens: 0,
     totalRequests: 0,
-    cacheEfficiency: 0
+    cacheEfficiency: 0,
+    averageResponseTime: 0,
+    costEstimate: 0
   });
 
-  // Initialize framework
-  useEffect(() => {
-    if (geminiConfig && supabaseConfig) {
-      const fw = new EnhancedGeminiFramework(geminiConfig, supabaseConfig);
-      setFramework(fw);
-      
-      // Initialize with default tiers
+  const handleConnectToGemini = async () => {
+    if (!apiKey.trim()) {
+      setErrorMessage('Please enter your Gemini API key');
+      return;
+    }
+
+    setIsConnecting(true);
+    setConnectionStatus('connecting');
+    setErrorMessage('');
+
+    try {
+      // Create framework with API key
+      const fw = new EnhancedGeminiFramework(
+        { apiKey: apiKey.trim() },
+        supabaseConfig
+      );
+
+      // Test the connection by initializing tiers
       const defaultTiers = {
         tier1: `TIER 1 - FOUNDATIONAL CONTEXT:
 You are an advanced AI assistant with deep knowledge across multiple domains.
@@ -72,28 +96,52 @@ Structure your response for maximum clarity and usefulness.
 Use examples, analogies, or illustrations when they enhance understanding.
 Tailor the complexity of your explanation to match the question's sophistication.`
       };
-      
-      fw.initializeTiers(defaultTiers.tier1, defaultTiers.tier2, defaultTiers.tier3)
-        .then(() => {
-          setIsInitialized(true);
-          updateStats(fw);
-        });
+
+      const initialized = await fw.initializeTiers(
+        defaultTiers.tier1, 
+        defaultTiers.tier2, 
+        defaultTiers.tier3
+      );
+
+      if (initialized) {
+        setFramework(fw);
+        setIsInitialized(true);
+        setConnectionStatus('connected');
+        updateStats(fw);
+      } else {
+        throw new Error('Failed to initialize tiers');
+      }
+    } catch (error) {
+      console.error('Connection error:', error);
+      setConnectionStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to Gemini API');
+    } finally {
+      setIsConnecting(false);
     }
-  }, [geminiConfig, supabaseConfig]);
+  };
 
   const updateStats = (fw: EnhancedGeminiFramework) => {
     const currentStats = fw.getStats();
     setStats({
       totalTokensUsed: currentStats.totalTokensUsed,
       cachedTokens: currentStats.cachedTokens,
-      totalRequests: Math.floor(currentStats.totalTokensUsed / 100), // Mock calculation
+      totalRequests: currentStats.totalRequests,
+      averageResponseTime: currentStats.averageResponseTime,
+      costEstimate: currentStats.costEstimate,
       cacheEfficiency: currentStats.cachedTokens > 0 
         ? Math.round((currentStats.cachedTokens / Math.max(currentStats.totalTokensUsed, 1)) * 100)
         : 0
     });
   };
 
-  if (!framework) {
+  // Auto-connect if API key is provided
+  useEffect(() => {
+    if (initialGeminiConfig?.apiKey && !framework) {
+      handleConnectToGemini();
+    }
+  }, [initialGeminiConfig?.apiKey]);
+
+  if (!framework || !isInitialized) {
     return (
       <div className="min-h-screen hero-gradient flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -102,24 +150,95 @@ Tailor the complexity of your explanation to match the question's sophistication
               <Brain className="w-8 h-8 text-white" />
             </div>
             <CardTitle className="gradient-text text-2xl">Gemini LLM Framework</CardTitle>
-            <CardDescription>Configure your API credentials to begin</CardDescription>
+            <CardDescription>
+              Connect to your Gemini API to access real-time AI capabilities
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Gemini API Key</Label>
-              <Input placeholder="Enter your Gemini API key" type="password" />
+              <Label htmlFor="api-key">Gemini API Key</Label>
+              <div className="relative">
+                <Input
+                  id="api-key"
+                  type={showApiKey ? "text" : "password"}
+                  placeholder="Enter your Gemini API key (AIza...)"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                >
+                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Get your API key from the{' '}
+                <a 
+                  href="https://makersuite.google.com/app/apikey" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Google AI Studio
+                </a>
+              </p>
             </div>
+
+            {errorMessage && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{errorMessage}</AlertDescription>
+              </Alert>
+            )}
+
+            {connectionStatus === 'connected' && (
+              <Alert>
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>Successfully connected to Gemini API!</AlertDescription>
+              </Alert>
+            )}
+
             <div className="space-y-2">
-              <Label>Supabase URL</Label>
-              <Input placeholder="https://your-project.supabase.co" />
+              <Label>Supabase Configuration (Optional)</Label>
+              <Input 
+                placeholder="https://your-project.supabase.co" 
+                defaultValue={supabaseConfig?.url || ''}
+                disabled
+              />
+              <Input 
+                placeholder="Your Supabase anon key" 
+                type="password"
+                defaultValue={supabaseConfig?.anonKey || ''}
+                disabled
+              />
+              <p className="text-xs text-muted-foreground">
+                Supabase integration enables conversation history and memory storage
+              </p>
             </div>
-            <div className="space-y-2">
-              <Label>Supabase Anon Key</Label>
-              <Input placeholder="Enter your Supabase anon key" type="password" />
-            </div>
-            <Button variant="hero" className="w-full" size="lg">
-              <Zap className="w-4 h-4 mr-2" />
-              Initialize Framework
+
+            <Button 
+              variant="hero" 
+              className="w-full" 
+              size="lg"
+              onClick={handleConnectToGemini}
+              disabled={isConnecting || !apiKey.trim()}
+            >
+              {isConnecting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4 mr-2" />
+                  Connect to Gemini
+                </>
+              )}
             </Button>
           </CardContent>
         </Card>
@@ -145,11 +264,11 @@ Tailor the complexity of your explanation to match the question's sophistication
               </div>
             </div>
             
-            {/* Status Indicators */}
+            {/* Real-time Status Indicators */}
             <div className="flex items-center space-x-6">
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
-                <span className="text-sm text-success">Framework Active</span>
+                <span className="text-sm text-success">API Connected</span>
               </div>
               
               <div className="flex items-center space-x-4 text-sm">
@@ -162,8 +281,12 @@ Tailor the complexity of your explanation to match the question's sophistication
                   <span>{stats.totalRequests} requests</span>
                 </div>
                 <div className="flex items-center space-x-1">
-                  <Gauge className="w-4 h-4 text-accent" />
-                  <span>{stats.cacheEfficiency}% efficiency</span>
+                  <Timer className="w-4 h-4 text-accent" />
+                  <span>{stats.averageResponseTime}ms avg</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <Gauge className="w-4 h-4 text-neural" />
+                  <span>${stats.costEstimate.toFixed(4)}</span>
                 </div>
               </div>
             </div>
@@ -232,32 +355,53 @@ Tailor the complexity of your explanation to match the question's sophistication
               <CardHeader>
                 <CardTitle>Framework Configuration</CardTitle>
                 <CardDescription>
-                  Advanced settings for your Gemini LLM framework
+                  Manage your Gemini LLM framework settings
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-4">
-                    <h3 className="font-semibold">Cache Settings</h3>
+                    <h3 className="font-semibold">API Configuration</h3>
                     <div className="space-y-2">
-                      <Label>Cache Retention (hours)</Label>
-                      <Input defaultValue="24" type="number" />
+                      <Label>Current API Key</Label>
+                      <div className="flex items-center space-x-2">
+                        <Input
+                          type="password"
+                          value={apiKey}
+                          readOnly
+                          className="flex-1"
+                        />
+                        <Badge variant="neural">Connected</Badge>
+                      </div>
                     </div>
                     <div className="space-y-2">
-                      <Label>Max Cache Size (MB)</Label>
-                      <Input defaultValue="100" type="number" />
+                      <Label>Cache Efficiency</Label>
+                      <Progress value={stats.cacheEfficiency} className="h-2" />
+                      <p className="text-xs text-muted-foreground">
+                        {stats.cacheEfficiency}% of requests use cached content
+                      </p>
                     </div>
                   </div>
                   
                   <div className="space-y-4">
-                    <h3 className="font-semibold">Performance</h3>
-                    <div className="space-y-2">
-                      <Label>Concurrent Requests</Label>
-                      <Input defaultValue="5" type="number" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Timeout (seconds)</Label>
-                      <Input defaultValue="30" type="number" />
+                    <h3 className="font-semibold">Usage Statistics</h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-sm">Total Tokens</span>
+                        <Badge variant="secondary">{stats.totalTokensUsed.toLocaleString()}</Badge>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Total Requests</span>
+                        <Badge variant="secondary">{stats.totalRequests}</Badge>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Average Response Time</span>
+                        <Badge variant="secondary">{stats.averageResponseTime}ms</Badge>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Estimated Cost</span>
+                        <Badge variant="accent">${stats.costEstimate.toFixed(4)}</Badge>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -265,17 +409,30 @@ Tailor the complexity of your explanation to match the question's sophistication
                 <Separator />
                 
                 <div className="flex space-x-4">
-                  <Button variant="neural">
+                  <Button 
+                    variant="neural"
+                    onClick={() => {
+                      framework.clearCache();
+                      updateStats(framework);
+                    }}
+                  >
                     <Database className="w-4 h-4 mr-2" />
                     Clear Cache
                   </Button>
                   <Button variant="memory">
                     <HardDrive className="w-4 h-4 mr-2" />
-                    Export Memory
+                    Export Data
                   </Button>
-                  <Button variant="glass">
+                  <Button 
+                    variant="glass"
+                    onClick={() => {
+                      setFramework(null);
+                      setIsInitialized(false);
+                      setConnectionStatus('disconnected');
+                    }}
+                  >
                     <Settings className="w-4 h-4 mr-2" />
-                    Reset Framework
+                    Disconnect
                   </Button>
                 </div>
               </CardContent>
