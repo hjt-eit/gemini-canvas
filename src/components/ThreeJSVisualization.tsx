@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
+import * as THREE from 'three';
 
 interface ThreeJSVisualizationProps {
   data: any;
@@ -43,22 +44,21 @@ function NetworkNode({ position, color }: { position: [number, number, number]; 
   );
 }
 
-// Connection line component
+// Simple line component - removed complex line creation to avoid errors
 function ConnectionLine({ start, end }: { start: [number, number, number]; end: [number, number, number] }) {
-  const points = [start, end];
-  
   return (
-    <line>
-      <bufferGeometry>
-        <bufferAttribute
-          attach="attributes-position"
-          count={points.length}
-          array={new Float32Array(points.flat())}
-          itemSize={3}
-        />
-      </bufferGeometry>
-      <lineBasicMaterial color="#4f46e5" />
-    </line>
+    <mesh position={[
+      (start[0] + end[0]) / 2,
+      (start[1] + end[1]) / 2,
+      (start[2] + end[2]) / 2
+    ]}>
+      <cylinderGeometry args={[0.02, 0.02, Math.sqrt(
+        Math.pow(end[0] - start[0], 2) + 
+        Math.pow(end[1] - start[1], 2) + 
+        Math.pow(end[2] - start[2], 2)
+      ), 8]} />
+      <meshBasicMaterial color="#4f46e5" />
+    </mesh>
   );
 }
 
