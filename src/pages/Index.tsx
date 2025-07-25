@@ -1,13 +1,21 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { GeminiDashboard } from '@/components/GeminiDashboard';
 
 const Index = () => {
+  // In a real implementation, these would come from environment variables or user input
+  const geminiConfig = {
+    apiKey: 'your-gemini-api-key', // Replace with actual API key
+  };
+
+  const supabaseConfig = {
+    url: 'your-supabase-url', // Replace with actual Supabase URL
+    anonKey: 'your-supabase-anon-key', // Replace with actual Supabase anon key
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
-    </div>
+    <GeminiDashboard 
+      geminiConfig={geminiConfig}
+      supabaseConfig={supabaseConfig}
+    />
   );
 };
 
