@@ -115,9 +115,11 @@ export class EnhancedGeminiFramework {
       console.log('Initializing Gemini AI client...');
     }
     
-    // Initialize Supabase
-    if (supabaseConfig) {
+    // Initialize Supabase only with valid config
+    if (supabaseConfig && supabaseConfig.url.startsWith('http') && supabaseConfig.anonKey.length > 10) {
       this.supabase = createClient(supabaseConfig.url, supabaseConfig.anonKey);
+    } else {
+      console.log('Supabase config not provided or invalid - running in demo mode');
     }
     
     // Initialize stats
